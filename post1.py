@@ -2,6 +2,7 @@ import json
 import time
 import streamlit as st
 import requests
+import pandas as pd
 
 # Set page configuration
 st.set_page_config(
@@ -52,7 +53,7 @@ st.markdown("""
         border-bottom: 2px solid #FF6C37 !important;
     }
     
-    /* Primary Action Button (Send Request) */
+    /* Global Primary Action Buttons (Send Request & Reset Button) */
     div.stButton > button[kind="primary"] {
         background-color: #FF6C37 !important; /* Postman Accent Color */
         color: white !important;
@@ -63,29 +64,6 @@ st.markdown("""
     }
     div.stButton > button[kind="primary"]:hover {
         background-color: #E05626 !important;
-    }
-    
-    /* Secondary Action Button (Reset Fields) */
-    div.stButton > button[kind="secondary"] {
-        background-color: #FFFFFF !important;
-        color: #FF6C37 !important;
-        border: 1px solid #FF6C37 !important;
-        border-radius: 6px !important;
-        font-weight: bold !important;
-    }
-    div.stButton > button[kind="secondary"]:hover {
-        background-color: #FFF0EB !important;
-        border-color: #E05626 !important;
-        color: #E05626 !important;
-    }
-    
-    /* Unified Look for Custom Banners */
-    .metric-banner {
-        padding: 12px !important;
-        border-radius: 6px !important;
-        font-weight: 500 !important;
-        font-size: 14px !important;
-        text-align: center !important;
     }
     
     /* Code Viewer Background Styling */
@@ -104,7 +82,6 @@ st.caption(
 )
 
 # ----------------- TRUE STATE RESET LOGIC -----------------
-# We use a state version key appended to element keys to force widgets to rebuild from blank
 if "reset_token" not in st.session_state:
     st.session_state.reset_token = 0
 
@@ -119,10 +96,9 @@ if "clear_clicked" in st.session_state and st.session_state.clear_clicked:
     if "basic_user" in st.session_state: st.session_state.basic_user = ""
     if "basic_pass" in st.session_state: st.session_state.basic_pass = ""
     if "bearer_token" in st.session_state: st.session_state.bearer_token = ""
-    st.session_state.reset_token += 1  # Increment to break widget cache
+    st.session_state.reset_token += 1  
     st.session_state.clear_clicked = False  
 
-# Fallback basic state initialization
 if "url_input" not in st.session_state: st.session_state.url_input = ""
 if "headers_json" not in st.session_state: st.session_state.headers_json = ""
 if "body_json" not in st.session_state: st.session_state.body_json = "{}"
@@ -131,7 +107,7 @@ if "param_keys" not in st.session_state: st.session_state.param_keys = [""]
 if "param_vals" not in st.session_state: st.session_state.param_vals = [""]
 if "auth_type_select" not in st.session_state: st.session_state.auth_type_select = "No Auth"
 
-# Layout: Method, URL input, and Clean Reset button side-by-side
+# Layout: Method, URL input, and Orange styled Reset button side-by-side
 col1, col2, col3 = st.columns([1.2, 4.3, 1.1])
 
 with col1:
@@ -150,23 +126,23 @@ with col2:
     )
 
 with col3:
-    if st.button("🔄 Reset Fields", use_container_width=True):
+    # Changed type="primary" to apply the orange style and kept text to "Reset"
+    if st.button("Reset", type="primary", use_container_width=True):
         st.session_state.clear_clicked = True
         st.rerun()
 
-# Tabs for Request Configuration - Authorization is now ordered first
+# Tabs for Request Configuration
 tab_auth, tab_params, tab_headers, tab_body = st.tabs(
     ["Authorization", "QueryParams", "Headers", "Body"]
 )
 
-# 1. Authorization Tab (Auth Type on Top Row, Credentials cleanly dropped below)
+# 1. Authorization Tab
 with tab_auth:
     st.markdown("##### Authentication")
     
     auth_headers = {}
     auth_tuple = None
 
-    # Line 1: Type Selection
     a_row1_col1, _ = st.columns([2.5, 4.5])
     with a_row1_col1:
         auth_type = st.selectbox(
@@ -174,9 +150,8 @@ with tab_auth:
             key="auth_type_select"
         )
 
-    # Line 2: Drop active credentials context onto the next line layout
     if auth_type != "No Auth":
-        st.write(" ") # Spacing gap
+        st.write(" ") 
         a_row2_col1, a_row2_col2, _ = st.columns([2.5, 2.5, 2])
         
         if auth_type == "Bearer Token":
@@ -317,8 +292,39 @@ if send_clicked:
                 end_time = time.time()
                 elapsed_time = round((end_time - start_time) * 1000, 2)
 
-                # --- OUTPUT SECTION ---
-                st.subheader("Response")
+                # --- Request Details (Sent) ---
+                st.markdown("---")
+                st.subheader("🛠️ Request Details (Sent)")
+                
+                sent_headers = dict(response.request.headers)
+                
+                req_col1, req_col2 = st.columns([1, 1])
+                with req_col1:
+                    st.markdown(f"**Endpoint:** `{response.request.method} {response.request.url}`")
+                with req_col2:
+                    st.markdown(f"**Body Type Data:** `{body_type}`")
+                
+                req_tab_headers, req_tab_body = st.tabs(["Sent Headers", "Sent Body Payload"])
+                with req_tab_headers:
+                    st.json(sent_headers)
+                with req_tab_body:
+                    if response.request.body:
+                        body_content = response.request.body
+                        if isinstance(body_content, bytes):
+                            try:
+                                body_content = body_content.decode('utf-8')
+                                body_content = json.loads(body_content)
+                                st.json(body_content)
+                            except Exception:
+                                st.code(body_content, language="text")
+                        else:
+                            st.code(body_content, language="text")
+                    else:
+                        st.info("Empty body data payload.")
+
+                # --- OUTPUT RESPONSE SECTION ---
+                st.markdown("---")
+                st.subheader("📥 Response")
 
                 # Metrics banner
                 m_col1, m_col2, m_col3 = st.columns(3)
@@ -333,20 +339,47 @@ if send_clicked:
                     size_kb = round(len(response.content) / 1024, 2)
                     st.warning(f"📦 Payload Size: {size_kb} KB")
 
-                # Response content views
-                out_tab_body, out_tab_headers = st.tabs(["Response Body", "Response Headers"])
+                # Response content views including the new Table View
+                out_tab_body, out_tab_table, out_tab_headers = st.tabs(
+                    ["Response Body (Raw / JSON)", "Response Body (Table View)", "Response Headers"]
+                )
                 
                 is_json = False
+                json_data = None
                 with out_tab_body:
                     try:
-                        json_res = response.json()
-                        st.json(json_res)
+                        json_data = response.json()
+                        st.json(json_data)
                         is_json = True
                     except ValueError:
                         if response.text:
                             st.code(response.text, language="text")
                         else:
                             st.info("No response body returned.")
+                            
+                with out_tab_table:
+                    if is_json and json_data is not None:
+                        try:
+                            # If response is a direct list of objects
+                            if isinstance(json_data, list):
+                                df = pd.DataFrame(json_data)
+                                st.dataframe(df, use_container_width=True)
+                            # If response is a dictionary containing a list
+                            elif isinstance(json_data, dict):
+                                # Try to find a list within the keys (e.g., data, users, items)
+                                list_key = next((k for k, v in json_data.items() if isinstance(v, list)), None)
+                                if list_key:
+                                    st.caption(f"Showing tabular visualization for key: `{list_key}`")
+                                    df = pd.DataFrame(json_data[list_key])
+                                    st.dataframe(df, use_container_width=True)
+                                else:
+                                    # Fallback: Convert a simple single flat object to a single-row table
+                                    df = pd.json_normalize(json_data)
+                                    st.dataframe(df, use_container_width=True)
+                        except Exception as table_err:
+                            st.info("Could not format this specific JSON structure into a table schema.")
+                    else:
+                        st.info("Table visualization is only available for valid structured JSON data payloads.")
                             
                 with out_tab_headers:
                     st.json(dict(response.headers))
